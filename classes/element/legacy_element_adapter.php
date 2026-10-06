@@ -39,12 +39,11 @@ use restore_customcert_activity_task;
 /**
  * Adapter that exposes legacy elements through the new element interfaces.
  *
- * This class is part of the compatibility layer for legacy element plugins that extend
- * the mod_customcert\element base class. It allows those plugins to work with the v2
- * element system without modification.
+ * Compatibility adapter for legacy element plugins that extend mod_customcert\element.
  *
- * Plugin authors should migrate their elements to implement element_interface directly.
- * This class is not part of the public API and should not be used directly by plugin authors.
+ * Exposes the v2 element interfaces while delegating to historical hooks
+ * (render_form_elements, save_unique_data, etc.). Native v2 elements should implement
+ * the interfaces directly and are never wrapped.
  */
 final class legacy_element_adapter implements
     form_element_interface,
@@ -56,13 +55,43 @@ final class legacy_element_adapter implements
     /** @var legacy_base The wrapped legacy element instance. */
     private legacy_base $inner;
 
+    /** @var bool Whether the wrapped render() declares a renderer parameter (released 5.2 shape). */
+    private bool $innerrenderacceptsrenderer;
+
+    /** @var bool Whether the wrapped render_html() declares a renderer parameter (released 5.2 shape). */
+    private bool $innerrenderhtmlacceptsrenderer;
+
     /**
      * Constructor.
+     *
+     * Caches the wrapped element's render()/render_html() declaration shape once, so the
+     * genuine 4.5-era historical call arity and the released 5.2 renderer argument can both
+     * be preserved without reflecting on every render call.
      *
      * @param legacy_base $legacy Legacy element instance to wrap.
      */
     public function __construct(legacy_base $legacy) {
         $this->inner = $legacy;
+        $this->innerrenderacceptsrenderer = self::accepts_argument_at(new \ReflectionMethod($legacy, 'render'), 3);
+        $this->innerrenderhtmlacceptsrenderer =
+            self::accepts_argument_at(new \ReflectionMethod($legacy, 'render_html'), 0);
+    }
+
+    /**
+     * Whether a method's declaration accepts a positional argument at the given index,
+     * either through enough declared parameters or a variadic parameter at or before it.
+     *
+     * @param \ReflectionMethod $method
+     * @param int $position Zero-based argument position.
+     * @return bool
+     */
+    private static function accepts_argument_at(\ReflectionMethod $method, int $position): bool {
+        $params = $method->getParameters();
+        if (count($params) > $position) {
+            return true;
+        }
+        $last = end($params);
+        return $last !== false && $last->isVariadic() && $last->getPosition() <= $position;
     }
 
     /**
@@ -111,7 +140,7 @@ final class legacy_element_adapter implements
     }
 
     /**
-     * Get the raw, untouched persistence representation of the element data.
+     * Get the raw, untouched persistence representation of the wrapped element's data.
      *
      * @return mixed
      */
@@ -246,6 +275,10 @@ final class legacy_element_adapter implements
     /**
      * Render the element into a PDF context.
      *
+     * Preserves the wrapped element's own call shape: a genuine 4.5-era historical
+     * render($pdf, $preview, $user) is called with exactly those three arguments, while a
+     * released 5.2-compatible render() that declares the renderer parameter also receives it.
+     *
      * @param \pdf $pdf
      * @param bool $preview
      * @param \stdClass $user
@@ -253,17 +286,28 @@ final class legacy_element_adapter implements
      * @return void
      */
     public function render(\pdf $pdf, bool $preview, \stdClass $user, ?element_renderer $renderer = null): void {
-        $this->inner->render($pdf, $preview, $user, $renderer);
+        if ($this->innerrenderacceptsrenderer) {
+            $this->inner->render($pdf, $preview, $user, $renderer);
+        } else {
+            $this->inner->render($pdf, $preview, $user);
+        }
     }
 
     /**
      * Render the element in HTML for the drag and drop interface.
      *
+     * Preserves the wrapped element's own call shape: a genuine 4.5-era historical
+     * render_html() is called with no arguments, while a released 5.2-compatible
+     * render_html() that declares the renderer parameter also receives it.
+     *
      * @param element_renderer|null $renderer
      * @return string
      */
     public function render_html(?element_renderer $renderer = null): string {
-        return $this->inner->render_html($renderer);
+        if ($this->innerrenderhtmlacceptsrenderer) {
+            return (string) $this->inner->render_html($renderer);
+        }
+        return (string) $this->inner->render_html();
     }
 
     /**
@@ -305,25 +349,24 @@ final class legacy_element_adapter implements
     /**
      * Sets the data on the form when editing an element (legacy fallback).
      *
-     * Only invokes the legacy hook when the wrapped element actually overrides it;
-     * calling the inherited no-op base implementation would emit a spurious deprecation.
-     * The deprecation notice is emitted here (the compatibility bridge) rather than
-     * in the base class no-op, so it is only emitted once.
+     * Always delegates, including to the inherited mod_customcert\element implementation,
+     * which populates the common form fields. A legacy override calling
+     * parent::definition_after_data() triggers that implementation's own deprecation notice;
+     * the warning count before/after detects that, so this only emits a fallback notice when
+     * the override did not call the parent at all.
      *
      * @param \MoodleQuickForm $mform
      * @return void
      */
     public function definition_after_data(MoodleQuickForm $mform): void {
-        if (method_exists($this->inner, 'definition_after_data')) {
-            $ref = new \ReflectionMethod($this->inner, 'definition_after_data');
-            if ($ref->getDeclaringClass()->getName() !== \mod_customcert\element::class) {
-                debugging(
-                    'definition_after_data() is deprecated since Moodle 5.2. '
-                    . 'Implement mod_customcert\\element\\preparable_form_interface::prepare_form() instead.',
-                    DEBUG_DEVELOPER
-                );
-                $this->inner->definition_after_data($mform);
-            }
+        $warningsbefore = $this->inner->get_definition_after_data_warning_count();
+        $this->inner->definition_after_data($mform);
+        if ($this->inner->get_definition_after_data_warning_count() === $warningsbefore) {
+            debugging(
+                'definition_after_data() is deprecated since Moodle 5.2. '
+                . 'Implement mod_customcert\\element\\preparable_form_interface::prepare_form() instead.',
+                DEBUG_DEVELOPER
+            );
         }
     }
 

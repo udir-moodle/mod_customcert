@@ -16,7 +16,7 @@
 
 /**
  * Regression tests for issue #999: structured third-party payloads must not be unwrapped
- * into a legacy scalar based on plugin identity.
+ * into a legacy scalar based on plugin identity or an unrelated optional capability.
  *
  * @package    mod_customcert
  * @category   test
@@ -41,6 +41,7 @@ use advanced_testcase;
 use context_course;
 use core\clock;
 use mod_customcert\element\persistable_element_interface;
+use mod_customcert\element\renderable_element_interface;
 use mod_customcert\export\element as export_element;
 use mod_customcert\export\template_appendix_manager_interface;
 use mod_customcert\export\template_import_logger_interface;
@@ -54,7 +55,7 @@ use stdClass;
 
 /**
  * Tests proving that structured-payload classification is based on the current
- * persistence contract, not plugin identity.
+ * persistence or rendering contract, not plugin identity.
  */
 final class issue_999_structured_third_party_payload_test extends advanced_testcase {
     /**
@@ -146,7 +147,7 @@ final class issue_999_structured_third_party_payload_test extends advanced_testc
 
     /**
      * Bundled elements keep their full JSON payload, proving the distinction is the
-     * persistence contract, not a bundled-name allowlist.
+     * persistence/render contract, not a bundled-name allowlist.
      *
      * @covers \mod_customcert\element::get_data
      */
@@ -189,12 +190,13 @@ final class issue_999_structured_third_party_payload_test extends advanced_testc
     }
 
     /**
-     * A non-persistable third-party element unwraps.
+     * A native v2 element with no custom save/normalise behaviour still keeps its
+     * structured JSON: the render contract alone is also a valid "current" signal.
      *
      * @covers \mod_customcert\element::get_data
      * @covers \mod_customcert\element::get_raw_data
      */
-    public function test_non_persistable_element_still_unwraps(): void {
+    public function test_native_v2_element_without_persistable_is_not_unwrapped(): void {
         $registry = new element_registry();
         $registry->register('nativev2nopersist', \customcertelement_nativev2nopersist\element::class);
         $factory = new element_factory($registry);
@@ -211,14 +213,16 @@ final class issue_999_structured_third_party_payload_test extends advanced_testc
 
         $this->assertInstanceOf(\customcertelement_nativev2nopersist\element::class, $instance);
         $this->assertNotInstanceOf(persistable_element_interface::class, $instance);
+        $this->assertInstanceOf(renderable_element_interface::class, $instance);
 
-        $this->assertSame('native-v2-value', $instance->get_data());
-        // The raw persistence representation must remain the full JSON object.
-        $this->assertSame(json_decode($data, true), json_decode($instance->get_raw_data(), true));
+        $raw = $instance->get_data();
+        $this->assertIsString($raw);
+        $this->assertSame(json_decode($data, true), json_decode($raw, true));
     }
 
     /**
-     * A persistable third-party element's imported payload must stay structured.
+     * Template import bypasses persistence_helper entirely: a persistable third-party
+     * element's imported payload must stay structured.
      *
      * @covers \mod_customcert\element::get_data
      * @covers \mod_customcert\export\element::import
@@ -265,13 +269,13 @@ final class issue_999_structured_third_party_payload_test extends advanced_testc
     }
 
     /**
-     * Documents a known limitation on this branch (see PR description): a non-persistable
-     * element's imported payload unwraps if the exporter names a field 'value'.
+     * A renderable, non-persistable element's imported payload must stay structured,
+     * even though the exporter's own field happens to be named 'value'.
      *
      * @covers \mod_customcert\element::get_data
      * @covers \mod_customcert\export\element::import
      */
-    public function test_known_limitation_non_persistable_element_import_collision_unwraps(): void {
+    public function test_imported_structured_payload_is_not_unwrapped_for_current_third_party_element(): void {
         global $DB;
 
         $this->resetAfterTest(true);
@@ -307,7 +311,11 @@ final class issue_999_structured_third_party_payload_test extends advanced_testc
         $dbrecord = $DB->get_record('customcert_elements', ['pageid' => $pageid], '*', MUST_EXIST);
         $instance = $factory->create('nativev2nopersist', $dbrecord);
 
-        $this->assertSame('imported-value', $instance->get_data());
+        $raw = $instance->get_data();
+        $this->assertIsString($raw);
+        $decoded = json_decode($raw, true);
+        $this->assertSame('imported-value', $decoded['value']);
+        $this->assertSame('Helvetica', $decoded['font']);
     }
 
     /**
@@ -340,7 +348,7 @@ final class issue_999_structured_third_party_payload_test extends advanced_testc
         $newid = $repo->create($instance, new element_layout(5, 6, 0, 'L'));
 
         $dbrecord = $DB->get_record('customcert_elements', ['id' => $newid], '*', MUST_EXIST);
-        $reloaded = $factory->create_from_legacy_record($dbrecord);
+        $reloaded = $factory->create_from_record($dbrecord);
 
         $raw = $reloaded->get_data();
         $this->assertIsString($raw);

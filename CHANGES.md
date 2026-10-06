@@ -4,6 +4,73 @@ All notable changes to this project will be documented in this file.
 
 Note - All hash comments refer to the issue number. Eg. #169 refers to https://github.com/mdjnelson/moodle-mod_customcert/issues/169.
 
+## [5.3.0] - 2026-10-05
+
+### Changed
+
+- Refreshed the certificate rearrange (reposition elements) interface: the certificate canvas is now centred in a visually distinct workspace with a subtle border/shadow, the save/cancel actions have a clearer visual hierarchy (Save and close is now primary), and hover/focus/selection affordances on certificate elements are more visible (#926).
+
+### Developer notes
+
+- **Element authoring guide added** (#819). A new `docs/element_authoring_guide.md` explains which interfaces are required versus optional, provides a decision table, and includes examples for common element types (minimal static, text/stylable, image sketch, and copy-aware elements).
+- **`mod_customcert\element\stylable_payload` is an immutable value object** (#814, #815). `from_form()` and `from_array()` return a `stylable_payload` instance; call `->to_array()` when a plain array is needed.
+- **`mod_customcert\element\element_payload_interface`** (#815). Introduces a typed payload pattern for element data. Implement `from_array()`, `to_array()`, and `validate()` on a dedicated payload class when an element has a genuine invariant or conditional-serialization rule to enforce; the database continues to store JSON, and this interface governs the PHP layer only. Elements with a real invariant ship a dedicated payload class (`customcertelement_coursename\coursename_payload`, `customcertelement_image\image_payload`, `customcertelement_bgimage\bgimage_payload`, `customcertelement_digitalsignature\digitalsignature_payload`); simple elements compose `mod_customcert\element\stylable_payload` directly in `normalise_data()` instead of wrapping it in an element-specific class. See `docs/element_payload_interface.md` for the full guide.
+
+### Deprecated / compatibility
+
+Moodle 5.3 is the final LTS compatibility bridge release for third-party `customcertelement_*`
+plugins upgrading directly from Moodle 4.5 LTS. Moodle 5.2 introduced Element System v2 and
+deprecated the historical `mod_customcert\element` runtime API; Moodle 5.3 keeps a deprecated
+compatibility bridge available so a genuine Moodle 4.5-era element, and a plugin already migrated
+to the released Moodle 5.2 contract, both continue to run. Native Element System v2 elements are
+unaffected and never go through the bridge. **Moodle 5.3 is the final release supporting the
+legacy runtime element API; it is removed in the Moodle 6.0-compatible release** (#953, #960,
+#980, #981). Plugin authors should migrate to Element System v2 now — see
+`docs/element_migration_v2.md` for the full lifecycle and how to identify legacy dependence.
+Historical database-upgrade and backup/restore migration logic for old persisted element data is
+an independent concern and is not tied to this runtime removal date.
+
+- **`mod_customcert\certificate` facade** (#975). Remains available as a deprecated compatibility
+  facade with all of its historical public methods and constants. New code should use the focused
+  services/repositories instead: `form_service`, `element_helper`, `certificate_time_service`,
+  `certificate_download_service`, `issue_repository`, `certificate_repository`, and
+  `certificate_issue_service`. Removal is planned no earlier than the Moodle 6.0-compatible
+  release.
+- **`mod_customcert\template` forwarding methods** (#976). The nine deprecated instance methods
+  (`save`, `add_page`, `save_page`, `delete`, `delete_page`, `delete_element`, `generate_pdf`,
+  `copy_to_template`, `move_item`) remain available as compatibility shims delegating to
+  `template_service` and `pdf_generation_service`. Removal is planned no earlier than the Moodle
+  6.0-compatible release.
+- **Historical static `mod_customcert\element_factory::get_element_instance()`** (#974). Remains
+  available, deprecated, for historical callers that need the raw plugin object. New code should
+  use `mod_customcert\service\element_factory::build_with_defaults()->create_from_record()`. This
+  compatibility shim will be removed in the Moodle 6.0-compatible release.
+- **Legacy element lifecycle methods** (#984). `element::save_form_elements()`,
+  `element::copy_element()`, and `element::delete()` remain available, deprecated, delegating to
+  `element_repository`. New code should implement the Element System v2 interfaces and use
+  `element_repository` directly.
+- **`mod_customcert\service\element_factory::create_from_legacy_record()`** (#985). Remains
+  available as a documented Moodle 5.2 replacement API for the historical static factory shim; it
+  is not itself deprecated. New/internal code should prefer `create_from_record()`.
+
+Until `MOODLE_503_STABLE` is created, references above to "Moodle 5.3" mean the current `main`
+branch.
+
+#### Legacy hooks and their Element System v2 replacements
+
+| Legacy hook | Element System v2 replacement |
+|---|---|
+| Legacy element identity/data methods | `element_interface` |
+| Legacy edit form hooks (`render_form_elements`) | `form_element_interface` |
+| Legacy form preparation (`definition_after_data`) | `preparable_form_interface` |
+| Legacy rendering hooks (`render`, `render_html`) | `renderable_element_interface` |
+| Legacy style/font/colour handling | `stylable_element_interface` and normalized payload data |
+| Legacy layout handling | `layout_element_interface` and repository-managed layout fields |
+| Legacy persistence hooks (`save_unique_data`, `save_form_elements`) | `persistable_element_interface` plus repository/service persistence |
+| Legacy validation hooks (`validate_form_elements`) | `validatable_element_interface` |
+| Legacy restore hooks (`after_restore`) | `restorable_element_interface` |
+| Legacy copy hooks (`copy_element`) | `copyable_element_interface` |
+
 ## [5.2.9] - 2026-10-01
 
 ### Fixed
@@ -22,9 +89,9 @@ Note - All hash comments refer to the issue number. Eg. #169 refers to https://g
 - Restored the runtime language when PDF generation fails (#933).
 - Limited the number of PDFs generated per request in the issues web service to prevent excessive resource use (#934).
 
-### Added
+### Changed
 
-- Site-wide certificate downloads are now processed asynchronously (#692).
+- Downloading all certificates from the site is now asynchronous (#692).
 
 ## [5.2.7] - 2026-09-15
 
@@ -59,9 +126,9 @@ Note - All hash comments refer to the issue number. Eg. #169 refers to https://g
 
 ### Security
 
-- Added a missing capability check so that only users who can manage a certificate template can fetch element HTML or the admin edit-element form via `get_element_html()` and the `editelement` fragment callback (#871).
-- `view.php`'s report-download flow (`downloadissue`) now verifies the target user has actually been issued the certificate before generating a PDF for them, preventing a report-viewer from generating a certificate for an arbitrary user who was never issued one (#871).
-- Moved the login check in `my_certificates.php` above the certificate-issuance existence check, preventing an unauthenticated user from probing whether a given user has been issued a given certificate (#871).
+- Added a missing capability check so that only users who can manage a certificate template can fetch element HTML or the admin edit-element form via `get_element_html()` and the `editelement` fragment callback (#872).
+- `view.php`'s report-download flow (`downloadissue`) now verifies the target user has actually been issued the certificate before generating a PDF for them, preventing a report-viewer from generating a certificate for an arbitrary user who was never issued one (#872).
+- Moved the login check in `my_certificates.php` above the certificate-issuance existence check, preventing an unauthenticated user from probing whether a given user has been issued a given certificate (#872).
 
 ## [5.2.4] - 2026-08-02
 
@@ -377,7 +444,7 @@ Existing element plugins may continue using legacy hooks in 5.2, but must be upd
 #### Common pitfalls
 - Do not assume `get_data()` returns a scalar string; it may be JSON with multiple keys.
 - Do not overwrite the whole JSON payload with a single scalar; always normalise to an object payload via Element System v2 interfaces.
-- Do not store standard visual fields (`font`/`fontsize`/`colour`/`width`) in custom keys; rely on the core merge behaviour.
+- Return standard visual fields (`font`/`fontsize`/`colour`/`width`) from `normalise_data()` when your element exposes them; they are not merged centrally.
 
 ## [5.0.2] - 2025-12-18
 
