@@ -182,7 +182,7 @@ final class certificate_download_service {
      */
     public function generate_all_for_site_zip(): ?array {
         [$namefields, $nameparams] = fields::get_sql_fullname();
-        $sql = "SELECT ci.*, $namefields as fullname, ct.id as templateid, ct.contextid, c.name as customcertname
+        $sql = "SELECT ci.*, $namefields as fullname, ct.id as templateid, ct.name as templatename, ct.contextid
                   FROM {customcert_issues} ci
                   JOIN {user} u
                     ON ci.userid = u.id
@@ -225,12 +225,9 @@ final class certificate_download_service {
                 }
                 $template = $templates[$templateid];
 
-                // Use the activity name (not the template name, which may be shared) and the
-                // issue id to guarantee a unique archive path even when activity names collide.
-                $activityname = str_replace(' ', '_', mb_strtolower((string) ($issue->customcertname ?? '')));
+                $ctname = str_replace(' ', '_', mb_strtolower($template->get_name()));
                 $userfullname = str_replace(' ', '_', mb_strtolower($issue->fullname));
-                $pdfbasename = ($activityname !== '' ? $activityname . '_' : '') . 'certificate_' . $issue->id . '.pdf';
-                $pdfname = $userfullname . DIRECTORY_SEPARATOR . clean_filename($pdfbasename);
+                $pdfname = $userfullname . DIRECTORY_SEPARATOR . $ctname . '_' . 'certificate.pdf';
                 $filecontents = $this->pdfservice->generate_pdf($template, false, (int) $issue->userid, true);
                 if (!$ziparchive->add_file_from_string($pdfname, $filecontents)) {
                     throw new moodle_exception('errorcreatezip', 'customcert');

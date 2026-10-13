@@ -15,10 +15,10 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Contract for elements that expose a raw, untouched persistence representation of their data.
+ * Optional contract for elements that expose the raw, untouched persistence representation.
  *
  * @package    mod_customcert
- * @copyright  2026 Mark Nelson <mdjnelson@gmail.com>
+ * @copyright  2025 Mark Nelson <mdjnelson@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
@@ -27,23 +27,31 @@ declare(strict_types=1);
 namespace mod_customcert\element;
 
 /**
- * Elements implementing this interface expose the untouched/raw persistence representation
- * of their data, as opposed to the legacy compatibility view returned by get_data().
+ * Interface raw_data_element_interface
  *
- * This is a narrow, optional interface: it is not part of the minimal element_interface
- * contract, and only exists for the repository/storage persistence boundary. Implementing
- * it is only meaningful for elements whose get_data() may apply legacy compatibility
- * unwrapping (e.g. unwrapping a generic migration wrapper) that must never be written back
- * to the database.
+ * This is deliberately kept separate from {@see element_interface} so that third-party
+ * plugins implementing element_interface directly are not broken by a new required method:
+ * element_interface is a stable, minimal contract that any third-party element must be
+ * able to satisfy without modification.
+ *
+ * Elements implementing this optional interface allow the persistence layer (e.g.
+ * element_repository) to store the untouched persistence representation of the element
+ * data, instead of falling back to get_data(), which may apply legacy compatibility
+ * unwrapping and lose migrated fields.
  */
 interface raw_data_element_interface {
     /**
      * Returns the raw, untouched persistence representation of the element data.
      *
-     * Unlike get_data(), this must never apply any legacy compatibility transformation.
-     * It is intended for use by the persistence layer (e.g. element_repository) only, and
-     * must not be used as a substitute for get_data() by element rendering or form-handling
-     * code.
+     * Unlike {@see element_interface::get_data()}, this must never apply legacy
+     * compatibility unwrapping. It always returns exactly what is (or will be) stored
+     * in the `customcert_elements.data` database column, so that the persistence layer
+     * (e.g. element_repository) never loses migrated fields that a legacy scalar
+     * compatibility view would otherwise hide.
+     *
+     * This method is intended for use by the persistence/storage boundary (e.g.
+     * element_repository) only, and must not be used as a substitute for get_data() by
+     * element rendering or form-handling code.
      *
      * @return mixed
      */

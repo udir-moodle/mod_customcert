@@ -20,6 +20,7 @@ use advanced_testcase;
 use context_system;
 use core\task\manager;
 use file_archive;
+use mod_customcert\callback\file_callbacks;
 use mod_customcert\service\certificate_download_service;
 use mod_customcert\service\certificate_issue_service;
 use mod_customcert\service\pdf_generation_service;
@@ -44,7 +45,7 @@ require_once(__DIR__ . '/fixtures/testable_generate_site_certificates_download_t
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \mod_customcert\task\generate_site_certificates_download_task
  * @covers     \mod_customcert\task\cleanup_site_certificates_downloads_task
- * @covers     \customcert_pluginfile
+ * @covers     \mod_customcert\callback\file_callbacks::pluginfile
  */
 final class generate_site_certificates_download_task_test extends advanced_testcase {
     /**
@@ -106,7 +107,7 @@ final class generate_site_certificates_download_task_test extends advanced_testc
 
         $manageruser = $this->create_manager_user();
         $context = context_system::instance();
-        $issue = $this->create_issued_certificate('Ada', 'Lovelace', 'Site Template');
+        $this->create_issued_certificate('Ada', 'Lovelace', 'Site Template');
 
         $task = new generate_site_certificates_download_task();
         $task->set_userid($manageruser->id);
@@ -137,12 +138,8 @@ final class generate_site_certificates_download_task_test extends advanced_testc
         $zip->open($zippath, file_archive::OPEN);
         $zipfiles = $zip->list_files();
         $zip->close();
-        $expectedactivityname = str_replace(' ', '_', mb_strtolower($issue['customcertname']));
         $this->assertCount(1, $zipfiles);
-        $this->assertSame(
-            "ada_lovelace/{$expectedactivityname}_certificate_{$issue['issueid']}.pdf",
-            $zipfiles[0]->pathname
-        );
+        $this->assertSame('ada_lovelace/site_template_certificate.pdf', $zipfiles[0]->pathname);
 
         $messages = $sink->get_messages();
         $this->assertNotEmpty($messages);
@@ -243,7 +240,7 @@ final class generate_site_certificates_download_task_test extends advanced_testc
         );
 
         $task = new testable_generate_site_certificates_download_task();
-        $task->service = $failingservice;
+        $task->set_download_service($failingservice);
         $task->set_userid($manageruser->id);
 
         try {
@@ -282,7 +279,7 @@ final class generate_site_certificates_download_task_test extends advanced_testc
         );
 
         $task = new testable_generate_site_certificates_download_task();
-        $task->service = $failingservice;
+        $task->set_download_service($failingservice);
         $task->set_userid($manageruser->id);
 
         try {
@@ -331,7 +328,7 @@ final class generate_site_certificates_download_task_test extends advanced_testc
         );
 
         $task = new testable_generate_site_certificates_download_task();
-        $task->service = $failingservice;
+        $task->set_download_service($failingservice);
         $task->set_userid($manageruser->id);
 
         try {
@@ -358,9 +355,6 @@ final class generate_site_certificates_download_task_test extends advanced_testc
      * System-context pluginfile must accept null course/cm without TypeError, and enforce access.
      */
     public function test_pluginfile_site_download_with_null_course_cm_and_access_control(): void {
-        global $CFG;
-        require_once($CFG->dirroot . '/mod/customcert/lib.php');
-
         $this->resetAfterTest();
 
         $owner = $this->create_manager_user();
@@ -381,7 +375,7 @@ final class generate_site_certificates_download_task_test extends advanced_testc
         $this->setUser($owner);
         try {
             // Use a missing file so the callback returns false instead of sending output.
-            $result = customcert_pluginfile(
+            $result = file_callbacks::pluginfile(
                 null,
                 null,
                 $context,
@@ -396,7 +390,7 @@ final class generate_site_certificates_download_task_test extends advanced_testc
 
         // Other user (even with capability) cannot access owner's itemid.
         $this->setUser($other);
-        $result = customcert_pluginfile(
+        $result = file_callbacks::pluginfile(
             null,
             null,
             $context,
@@ -417,7 +411,7 @@ final class generate_site_certificates_download_task_test extends advanced_testc
             'filepath' => '/',
             'filename' => 'all_certificates.zip',
         ], 'zip-content');
-        $result = customcert_pluginfile(
+        $result = file_callbacks::pluginfile(
             null,
             null,
             $context,
@@ -516,13 +510,13 @@ final class generate_site_certificates_download_task_test extends advanced_testc
      * @param string $firstname
      * @param string $lastname
      * @param string $templatename
-     * @return array{issueid: int, customcertname: string}
+     * @return void
      */
     private function create_issued_certificate(
         string $firstname = 'Ada',
         string $lastname = 'Lovelace',
         string $templatename = 'Site Template'
-    ): array {
+    ): void {
         global $DB;
 
         $course = $this->getDataGenerator()->create_course();
@@ -542,8 +536,6 @@ final class generate_site_certificates_download_task_test extends advanced_testc
         $DB->insert_record('customcert_elements', $element);
 
         $issuer = new certificate_issue_service($DB, static fn(): int => time());
-        $issueid = $issuer->issue_certificate((int) $customcert->id, (int) $user->id);
-
-        return ['issueid' => $issueid, 'customcertname' => $customcert->name];
+        $issuer->issue_certificate((int) $customcert->id, (int) $user->id);
     }
 }

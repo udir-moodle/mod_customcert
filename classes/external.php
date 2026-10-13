@@ -38,7 +38,6 @@ use mod_customcert\service\certificate_repository;
 use mod_customcert\service\element_factory;
 use mod_customcert\service\element_layout;
 use mod_customcert\service\element_repository;
-use mod_customcert\service\form_service;
 use mod_customcert\service\issue_repository;
 use mod_customcert\service\pdf_generation_service;
 use mod_customcert\service\persistence_helper;
@@ -78,14 +77,16 @@ class external extends external_api {
     /**
      * Handles saving element data.
      *
+     * Returns the generic layout properties that the rearranger keeps in React state so the
+     * interactive editor can refresh without a full page reload. Values are read from the
+     * saved element/layout (not from element-type-specific fields).
+     *
      * @param int $templateid The template id.
      * @param int $elementid The element id.
      * @param array $values The values to save
-     * @return bool
+     * @return array{id: int, posx: int, posy: int, width: ?int, refpoint: int, alignment: string, html: string}
      */
     public static function save_element($templateid, $elementid, $values) {
-        global $USER;
-
         $params = [
             'templateid' => $templateid,
             'elementid' => $elementid,
@@ -122,75 +123,31 @@ class external extends external_api {
             'timemodified' => true,
         ];
 
-        // Submit the values through the element edit form so the same select-option filtering
-        // and validation as edit_element.php is applied.
-        $submission = self::get_form_submission($element);
+        // Build the updated record by merging submitted values onto the existing element.
+        $record = clone $element;
         foreach ($values as $value) {
             $field = $value['name'];
             if (isset($protectedfields[$field])) {
                 throw new invalid_parameter_exception('Field is not allowed to be updated: ' . $field);
             }
-            $submission[$field] = $value['value'];
+            $record->$field = $value['value'];
         }
 
+        // Reassert the authorised identity, regardless of what was merged above.
+        $record->id = (int)$element->id;
+        $record->pageid = (int)$element->pageid;
+        $record->element = (string)$element->element;
+
+        // Instantiate the element via the factory so element-specific normalisation is applied.
         $factory = element_factory::build_with_defaults();
-        $formid = preg_replace('/[^a-z0-9_]/i', '_', edit_element_form::class);
-        $submission['_qf__' . $formid] = 1;
-        // The web service request is already authenticated, so skip the form's own sesskey check.
-        $ignoresesskey = $USER->ignoresesskey ?? null;
-        $USER->ignoresesskey = true;
-        try {
-            $mform = new edit_element_form(
-                null,
-                ['element' => $element, 'factory' => $factory],
-                'post',
-                '',
-                null,
-                true,
-                $submission
-            );
-        } finally {
-            if ($ignoresesskey === null) {
-                unset($USER->ignoresesskey);
-            } else {
-                $USER->ignoresesskey = $ignoresesskey;
-            }
-        }
-        if (!$mform->is_validated() || !($data = $mform->get_data())) {
-            throw new invalid_parameter_exception('Invalid element values');
-        }
-
-        // Only the validated form data is persisted; identity always comes from the authorised element.
-        $data->id = (int)$element->id;
-        $data->pageid = (int)$element->pageid;
-        $data->element = (string)$element->element;
-
-        $dataarray = (array)$data;
-        (new form_service())->normalise_submission($dataarray);
-        $data = (object)$dataarray;
-
-        $instance = $factory->create_from_legacy_record($data);
+        $instance = $factory->create_from_record((object)(array)$record);
         if (!$instance) {
             throw new moodle_exception('invalidelementtype', 'customcert');
         }
-
-        $record = (object)[
-            'id' => (int)$element->id,
-            'pageid' => (int)$element->pageid,
-            'element' => (string)$element->element,
-            'name' => $data->name,
-            'posx' => $data->posx ?? $element->posx,
-            'posy' => $data->posy ?? $element->posy,
-            'refpoint' => $data->refpoint ?? $element->refpoint,
-            'alignment' => $data->alignment ?? $element->alignment,
-            'sequence' => $element->sequence,
-            'timecreated' => $element->timecreated,
-            'timemodified' => $element->timemodified,
-        ];
-        $record->data = persistence_helper::to_json_data($instance, $data);
+        $record->data = persistence_helper::to_json_data($instance, (object)(array)$record);
 
         // Create the final instance from the normalised record and persist.
-        $instance = $factory->create_from_legacy_record($record);
+        $instance = $factory->create_from_record($record);
         $layout = element_layout::from_record($record);
 
         // Defence in depth: the instance about to be persisted must still match the
@@ -205,43 +162,36 @@ class external extends external_api {
 
         $elementrepo->save($instance, $layout);
 
-        // For compatibility keep a simple truthy result.
-        return true;
-    }
-
-    /**
-     * Builds the base form submission from the stored element so omitted fields keep their values.
-     *
-     * @param stdClass $element The stored element record.
-     * @return array
-     */
-    private static function get_form_submission(stdClass $element): array {
-        $submission = [
-            'name' => (string)$element->name,
-            'posx' => $element->posx,
-            'posy' => $element->posy,
-            'refpoint' => $element->refpoint,
-            'alignment' => $element->alignment,
+        // Return generic layout + preview HTML for the rearranger (element-type agnostic).
+        return [
+            'id' => $instance->get_id(),
+            'posx' => (int)($layout->posx ?? 0),
+            'posy' => (int)($layout->posy ?? 0),
+            'width' => $instance->get_width(),
+            'refpoint' => (int)($layout->refpoint ?? 0),
+            'alignment' => $layout->alignment,
+            'html' => $instance->render_html(),
         ];
-        $payload = json_decode((string)($element->data ?? ''), true);
-        if (is_array($payload)) {
-            foreach ($payload as $key => $value) {
-                if (is_scalar($value) && $value !== false) {
-                    $submission[$key] = (string)$value;
-                }
-            }
-        }
-
-        return array_filter($submission, static fn($value) => $value !== null);
     }
 
     /**
      * Returns the save_element result value.
      *
-     * @return external_value
+     * @return external_single_structure
      */
     public static function save_element_returns() {
-        return new external_value(PARAM_BOOL, 'True if successful, false otherwise');
+        return new external_single_structure(
+            [
+                'id' => new external_value(PARAM_INT, 'The element id'),
+                'posx' => new external_value(PARAM_INT, 'X position in mm'),
+                'posy' => new external_value(PARAM_INT, 'Y position in mm'),
+                'width' => new external_value(PARAM_INT, 'Optional max width in mm', VALUE_REQUIRED, null, NULL_ALLOWED),
+                'refpoint' => new external_value(PARAM_INT, 'Reference point'),
+                'alignment' => new external_value(PARAM_ALPHA, 'Text alignment L, C, or R'),
+                'html' => new external_value(PARAM_RAW, 'Server-rendered preview HTML'),
+            ],
+            'Updated generic layout properties for the saved element'
+        );
     }
 
     /**
@@ -292,7 +242,7 @@ class external extends external_api {
 
         // Get an instance of the element class.
         $factory = element_factory::build_with_defaults();
-        if ($e = $factory->create_from_legacy_record($element)) {
+        if ($e = $factory->create_from_record($element)) {
             return $e->render_html();
         }
 

@@ -47,6 +47,7 @@ use pdf;
 use restore_customcert_activity_task;
 use stdClass;
 use stored_file;
+use customcertelement_image\image_payload;
 
 /**
  * The customcert element image's core interaction API.
@@ -215,7 +216,7 @@ class element extends base_element implements
             $arrtostore['alphachannel'] = (float) $formdata->alphachannel;
         }
 
-        if (!empty($formdata->fileid) && array_key_exists((int)$formdata->fileid, self::get_images())) {
+        if (!empty($formdata->fileid)) {
             // Array of data we will be storing in the database.
             $fs = get_file_storage();
             if ($file = $fs->get_file_by_id($formdata->fileid)) {
@@ -229,7 +230,7 @@ class element extends base_element implements
             }
         }
 
-        return $arrtostore;
+        return image_payload::from_array($arrtostore)->to_array();
     }
 
     /**

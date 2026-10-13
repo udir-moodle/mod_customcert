@@ -37,6 +37,7 @@ use moodle_url;
 use MoodleQuickForm;
 use pdf;
 use stdClass;
+use customcertelement_bgimage\bgimage_payload;
 
 /**
  * The customcert element background image's core interaction API.
@@ -150,7 +151,7 @@ class element extends \customcertelement_image\element implements
         $arrtostore = [];
 
         // If a file was selected in the dropdown, persist its metadata so we can resolve it later.
-        if (!empty($formdata->fileid) && array_key_exists((int)$formdata->fileid, self::get_images())) {
+        if (!empty($formdata->fileid)) {
             $fs = get_file_storage();
             if ($file = $fs->get_file_by_id($formdata->fileid)) {
                 $arrtostore += [
@@ -172,7 +173,7 @@ class element extends \customcertelement_image\element implements
             }
         }
 
-        return $arrtostore;
+        return bgimage_payload::from_array($arrtostore)->to_array();
     }
 
     /**

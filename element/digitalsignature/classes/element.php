@@ -29,7 +29,6 @@ namespace customcertelement_digitalsignature;
 use context_course;
 use context_system;
 use core_collator;
-use mod_customcert\certificate;
 use mod_customcert\service\form_service;
 use mod_customcert\element\persistable_element_interface;
 use mod_customcert\element\validatable_element_interface;
@@ -42,6 +41,7 @@ use MoodleQuickForm;
 use pdf;
 use stdClass;
 use stored_file;
+use customcertelement_digitalsignature\digitalsignature_payload;
 
 /**
  * The customcert element digital signature's core interaction API.
@@ -316,7 +316,7 @@ class element extends \customcertelement_image\element implements
         // Array of data we will be storing in the database.
         $fs = get_file_storage();
 
-        if (!empty($formdata->fileid) && array_key_exists((int)$formdata->fileid, self::get_images())) {
+        if (!empty($formdata->fileid)) {
             if ($file = $fs->get_file_by_id($formdata->fileid)) {
                 $arrtostore += [
                     'contextid' => $file->get_contextid(),
@@ -328,7 +328,7 @@ class element extends \customcertelement_image\element implements
             }
         }
 
-        if (!empty($formdata->signaturefileid) && array_key_exists((int)$formdata->signaturefileid, self::get_signatures())) {
+        if (!empty($formdata->signaturefileid)) {
             if ($signaturefile = $fs->get_file_by_id($formdata->signaturefileid)) {
                 $arrtostore += [
                     'signaturecontextid' => $signaturefile->get_contextid(),
@@ -340,7 +340,7 @@ class element extends \customcertelement_image\element implements
             }
         }
 
-        return $arrtostore;
+        return digitalsignature_payload::from_array($arrtostore)->to_array();
     }
 
     /**

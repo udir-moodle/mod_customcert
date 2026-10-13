@@ -33,6 +33,7 @@ use mod_customcert\element\renderable_element_interface;
 use mod_customcert\element\form_element_interface;
 use mod_customcert\element\validatable_element_interface;
 use mod_customcert\element\preparable_form_interface;
+use mod_customcert\element\stylable_payload;
 use mod_customcert\element_helper;
 use mod_customcert\service\element_renderer;
 use MoodleQuickForm;
@@ -102,14 +103,13 @@ class element extends base_element implements
      * @return array JSON-serialisable payload
      */
     public function normalise_data(stdClass $formdata): array {
-        return [
-            'gradeitem' => (string)($formdata->gradeitem ?? ''),
-            'gradeformat' => isset($formdata->gradeformat) ? (string)$formdata->gradeformat : '',
-            'font' => (string)($formdata->font ?? ''),
-            'fontsize' => (int)($formdata->fontsize ?? 0),
-            'colour' => (string)($formdata->colour ?? ''),
-            'width' => (int)($formdata->width ?? 0),
-        ];
+        return array_merge(
+            [
+                'gradeitem' => (string)($formdata->gradeitem ?? ''),
+                'gradeformat' => isset($formdata->gradeformat) ? (string)$formdata->gradeformat : '',
+            ],
+            stylable_payload::from_form($formdata)->to_array(),
+        );
     }
 
 
@@ -165,19 +165,19 @@ class element extends base_element implements
                 $grade = element_helper::get_grade_item_info(
                     $gradeitemid,
                     $gradeformat,
-                    (int)$user->id,
-                    $courseid
+                    (int)$user->id
                 );
             } else {
                 $grade = element_helper::get_mod_grade_info(
                     (int)$gradeitem,
                     $gradeformat,
-                    (int)$user->id,
-                    $courseid
+                    (int)$user->id
                 );
             }
 
-            $grade = $grade ? $grade->get_displaygrade() : '';
+            if ($grade) {
+                $grade = $grade->get_displaygrade();
+            }
         }
 
         if ($renderer) {

@@ -215,12 +215,11 @@ final class element_test extends advanced_testcase {
      * Helper to create a full customcert setup and return [elementid, customcertid, courseid].
      *
      * @param string $gradeitem
-     * @param \stdClass|null $course Course to create the certificate in.
      * @return array{int, int, int}
      */
-    private function create_customcert_setup(string $gradeitem, ?\stdClass $course = null): array {
+    private function create_customcert_setup(string $gradeitem): array {
         global $DB;
-        $course ??= $this->getDataGenerator()->create_course();
+        $course = $this->getDataGenerator()->create_course();
         $customcert = $this->getDataGenerator()->create_module('customcert', ['course' => $course->id]);
         $template = $DB->get_record(
             'customcert_templates',
@@ -274,7 +273,7 @@ final class element_test extends advanced_testcase {
         $grade->timemodified = $time;
         $grade->insert();
 
-        [$elementid, $customcertid] = $this->create_customcert_setup((string)$assign->cmid, $course);
+        [$elementid, $customcertid] = $this->create_customcert_setup((string)$assign->cmid);
         $DB->set_field(
             'customcert_elements',
             'data',
@@ -320,7 +319,7 @@ final class element_test extends advanced_testcase {
         $grade->timemodified = $time;
         $grade->insert();
 
-        [$elementid, $customcertid] = $this->create_customcert_setup(element::GRADE_COURSE, $course);
+        [$elementid, $customcertid] = $this->create_customcert_setup(element::GRADE_COURSE);
         certificate_issue_service::create()->issue_certificate($customcertid, (int)$student->id);
 
         $rec = $DB->get_record('customcert_elements', ['id' => $elementid]);
@@ -362,7 +361,7 @@ final class element_test extends advanced_testcase {
         $grade->insert();
 
         $gradeitem = 'gradeitem:' . $gi->id;
-        [$elementid, $customcertid] = $this->create_customcert_setup($gradeitem, $course);
+        [$elementid, $customcertid] = $this->create_customcert_setup($gradeitem);
         certificate_issue_service::create()->issue_certificate($customcertid, (int)$student->id);
 
         $rec = $DB->get_record('customcert_elements', ['id' => $elementid]);

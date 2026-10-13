@@ -35,6 +35,7 @@ use mod_customcert\element\renderable_element_interface;
 use mod_customcert\element\form_element_interface;
 use mod_customcert\element\validatable_element_interface;
 use mod_customcert\element\preparable_form_interface;
+use mod_customcert\element\stylable_payload;
 use mod_customcert\element_helper;
 use mod_customcert\service\element_renderer;
 use MoodleQuickForm;
@@ -56,14 +57,6 @@ class element extends base_element implements
     validatable_element_interface
 {
     /**
-     * Core user table fields that may be displayed.
-     */
-    private const USER_FIELDS = [
-        'firstname', 'lastname', 'username', 'email', 'city', 'country', 'url',
-        'idnumber', 'institution', 'department', 'phone1', 'phone2', 'address',
-    ];
-
-    /**
      * Build the configuration form for this element.
      *
      * @param MoodleQuickForm $mform
@@ -73,10 +66,21 @@ class element extends base_element implements
         global $PAGE;
 
         // Get the user profile fields.
-        $userfields = [];
-        foreach (self::USER_FIELDS as $userfield) {
-            $userfields[$userfield] = fields::get_display_name($userfield);
-        }
+        $userfields = [
+            'firstname' => fields::get_display_name('firstname'),
+            'lastname' => fields::get_display_name('lastname'),
+            'username' => fields::get_display_name('username'),
+            'email' => fields::get_display_name('email'),
+            'city' => fields::get_display_name('city'),
+            'country' => fields::get_display_name('country'),
+            'url' => fields::get_display_name('url'),
+            'idnumber' => fields::get_display_name('idnumber'),
+            'institution' => fields::get_display_name('institution'),
+            'department' => fields::get_display_name('department'),
+            'phone1' => fields::get_display_name('phone1'),
+            'phone2' => fields::get_display_name('phone2'),
+            'address' => fields::get_display_name('address'),
+        ];
         // Get the user custom fields, excluding ones the configuring user isn't permitted to disclose.
         $context = $PAGE->context;
         $canviewalldetails = has_capability('moodle/user:viewalldetails', $context);
@@ -106,14 +110,10 @@ class element extends base_element implements
      * @return array JSON-serialisable payload
      */
     public function normalise_data(stdClass $formdata): array {
-        // Persist the selected user field identifier under the key 'userfield'.
-        return [
-            'userfield' => (string)($formdata->userfield ?? ''),
-            'font' => (string)($formdata->font ?? ''),
-            'fontsize' => (int)($formdata->fontsize ?? 0),
-            'colour' => (string)($formdata->colour ?? ''),
-            'width' => (int)($formdata->width ?? 0),
-        ];
+        return array_merge(
+            ['userfield' => (string)($formdata->userfield ?? '')],
+            stylable_payload::from_form($formdata)->to_array(),
+        );
     }
 
     /**
@@ -204,7 +204,7 @@ class element extends base_element implements
                     }
                 }
             }
-        } else if (in_array($field, self::USER_FIELDS, true) && !empty($user->$field)) { // Field in the user table.
+        } else if (!empty($user->$field)) { // Field in the user table.
             $value = $user->$field;
         }
 

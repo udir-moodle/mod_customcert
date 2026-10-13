@@ -30,8 +30,10 @@ use grade_item;
 use mod_customcert\element\persistable_element_interface;
 use mod_customcert\element as base_element;
 use mod_customcert\element\form_element_interface;
+use mod_customcert\element\renderable_element_interface;
 use mod_customcert\element\validatable_element_interface;
 use mod_customcert\element\preparable_form_interface;
+use mod_customcert\element\stylable_payload;
 use mod_customcert\element_helper;
 use mod_customcert\service\element_renderer;
 use MoodleQuickForm;
@@ -51,6 +53,7 @@ class element extends base_element implements
     form_element_interface,
     persistable_element_interface,
     preparable_form_interface,
+    renderable_element_interface,
     restorable_element_interface,
     validatable_element_interface
 {
@@ -81,13 +84,10 @@ class element extends base_element implements
      * @return array JSON-serialisable payload
      */
     public function normalise_data(stdClass $formdata): array {
-        return [
-            'gradeitem' => (string)($formdata->gradeitem ?? ''),
-            'font' => (string)($formdata->font ?? ''),
-            'fontsize' => (int)($formdata->fontsize ?? 0),
-            'colour' => (string)($formdata->colour ?? ''),
-            'width' => (int)($formdata->width ?? 0),
-        ];
+        return array_merge(
+            ['gradeitem' => (string)($formdata->gradeitem ?? '')],
+            stylable_payload::from_form($formdata)->to_array(),
+        );
     }
 
     /**
@@ -204,18 +204,17 @@ class element extends base_element implements
         if (empty($data) || empty($data['gradeitem'])) {
             return '';
         }
-        $courseid = element_helper::get_courseid($this->get_id());
 
         $gradeitem = $data['gradeitem'];
         if (strpos($gradeitem, 'gradeitem:') === 0) {
             $gradeitemid = substr($gradeitem, 10);
-            $gradeitem = grade_item::fetch(['id' => $gradeitemid, 'courseid' => $courseid]);
+            $gradeitem = grade_item::fetch(['id' => $gradeitemid]);
 
             // If the gradeitem was not found, return an empty string.
             // This will effectively prevent the element from rendering.
             return $gradeitem ? $gradeitem->get_name() : '';
         } else {
-            if (!$cm = $DB->get_record('course_modules', ['id' => $gradeitem, 'course' => $courseid])) {
+            if (!$cm = $DB->get_record('course_modules', ['id' => $gradeitem])) {
                 return '';
             }
 

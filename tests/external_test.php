@@ -106,8 +106,15 @@ final class external_test extends advanced_testcase {
 
         $result = external::save_element($template->id, $element->id, $values);
         // Simulate WS return value cleaning.
-        external_api::clean_returnvalue(external::save_element_returns(), $result);
-        $this->assertTrue($result);
+        $cleaned = external_api::clean_returnvalue(external::save_element_returns(), $result);
+        $this->assertIsArray($cleaned);
+        $this->assertSame((int)$element->id, (int)$cleaned['id']);
+        $this->assertArrayHasKey('posx', $cleaned);
+        $this->assertArrayHasKey('posy', $cleaned);
+        $this->assertArrayHasKey('width', $cleaned);
+        $this->assertArrayHasKey('refpoint', $cleaned);
+        $this->assertArrayHasKey('alignment', $cleaned);
+        $this->assertArrayHasKey('html', $cleaned);
 
         // Verify the submitted value was normalised and saved.
         $row = $DB->get_record('customcert_elements', ['id' => $element->id], '*', MUST_EXIST);
@@ -115,6 +122,74 @@ final class external_test extends advanced_testcase {
         $decoded = json_decode($row->data, true);
         $this->assertIsArray($decoded);
         $this->assertSame('new text', $decoded['text'] ?? null, 'Submitted text value should be saved');
+    }
+
+    /**
+     * Legitimate layout fields (posx, posy, refpoint, alignment) sent alongside the
+     * element-specific payload must still be saved after the identity hardening fix.
+     *
+     * @covers \mod_customcert\external::save_element
+     */
+    public function test_save_element_saves_layout_fields(): void {
+        global $DB;
+
+        $this->setAdminUser();
+
+        $template = (object) [
+            'name' => 'WS Save Layout Template',
+            'contextid' => context_system::instance()->id,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ];
+        $template->id = (int)$DB->insert_record('customcert_templates', $template, true);
+
+        $page = (object) [
+            'templateid' => $template->id,
+            'width' => 210,
+            'height' => 297,
+            'leftmargin' => 0,
+            'rightmargin' => 0,
+            'sequence' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ];
+        $page->id = (int)$DB->insert_record('customcert_pages', $page, true);
+
+        $element = (object) [
+            'pageid' => $page->id,
+            'element' => 'text',
+            'name' => 'Text',
+            'posx' => 10,
+            'posy' => 20,
+            'refpoint' => 1,
+            'alignment' => 'L',
+            'data' => json_encode(['text' => 'old text']),
+            'sequence' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ];
+        $element->id = (int)$DB->insert_record('customcert_elements', $element, true);
+
+        $values = [
+            ['name' => 'text', 'value' => 'new text'],
+            ['name' => 'posx', 'value' => '15'],
+            ['name' => 'posy', 'value' => '25'],
+            ['name' => 'refpoint', 'value' => '2'],
+            ['name' => 'alignment', 'value' => 'C'],
+        ];
+
+        $result = external::save_element($template->id, $element->id, $values);
+        $cleaned = external_api::clean_returnvalue(external::save_element_returns(), $result);
+        $this->assertSame(15, $cleaned['posx']);
+        $this->assertSame(25, $cleaned['posy']);
+        $this->assertSame(2, $cleaned['refpoint']);
+        $this->assertSame('C', $cleaned['alignment']);
+
+        $row = $DB->get_record('customcert_elements', ['id' => $element->id], '*', MUST_EXIST);
+        $this->assertSame(15, (int)$row->posx);
+        $this->assertSame(25, (int)$row->posy);
+        $this->assertSame(2, (int)$row->refpoint);
+        $this->assertSame('C', $row->alignment);
     }
 
     /**
@@ -170,73 +245,6 @@ final class external_test extends advanced_testcase {
         external::save_element($templateida, $elementb->id, [
             ['name' => 'name', 'value' => 'Modified by attacker'],
         ]);
-    }
-
-    /**
-     * Legitimate layout fields (posx, posy, refpoint, alignment) sent alongside the
-     * element-specific payload must still be saved after the identity hardening fix.
-     *
-     * @covers \mod_customcert\external::save_element
-     */
-    public function test_save_element_saves_layout_fields(): void {
-        global $DB;
-
-        $this->setAdminUser();
-
-        $template = (object) [
-            'name' => 'WS Save Layout Template',
-            'contextid' => context_system::instance()->id,
-            'timecreated' => time(),
-            'timemodified' => time(),
-        ];
-        $template->id = (int)$DB->insert_record('customcert_templates', $template, true);
-
-        $page = (object) [
-            'templateid' => $template->id,
-            'width' => 210,
-            'height' => 297,
-            'leftmargin' => 0,
-            'rightmargin' => 0,
-            'sequence' => 1,
-            'timecreated' => time(),
-            'timemodified' => time(),
-        ];
-        $page->id = (int)$DB->insert_record('customcert_pages', $page, true);
-
-        $element = (object) [
-            'pageid' => $page->id,
-            'element' => 'text',
-            'name' => 'Text',
-            'posx' => 10,
-            'posy' => 20,
-            'refpoint' => 1,
-            'alignment' => 'L',
-            'data' => json_encode(['text' => 'old text']),
-            'sequence' => 1,
-            'timecreated' => time(),
-            'timemodified' => time(),
-        ];
-        $element->id = (int)$DB->insert_record('customcert_elements', $element, true);
-
-        set_config('showposxy', 1, 'customcert');
-
-        $values = [
-            ['name' => 'text', 'value' => 'new text'],
-            ['name' => 'posx', 'value' => '15'],
-            ['name' => 'posy', 'value' => '25'],
-            ['name' => 'refpoint', 'value' => '2'],
-            ['name' => 'alignment', 'value' => 'C'],
-        ];
-
-        $result = external::save_element($template->id, $element->id, $values);
-        external_api::clean_returnvalue(external::save_element_returns(), $result);
-        $this->assertTrue($result);
-
-        $row = $DB->get_record('customcert_elements', ['id' => $element->id], '*', MUST_EXIST);
-        $this->assertSame(15, (int)$row->posx);
-        $this->assertSame(25, (int)$row->posy);
-        $this->assertSame(2, (int)$row->refpoint);
-        $this->assertSame('C', $row->alignment);
     }
 
     /**
@@ -875,7 +883,10 @@ final class external_test extends advanced_testcase {
                 ['name' => 'text', 'value' => 'Updated text'],
             ]
         );
-        $this->assertTrue($result);
+        $cleaned = external_api::clean_returnvalue(external::save_element_returns(), $result);
+        $this->assertIsArray($cleaned);
+        $this->assertSame((int)$elementid, (int)$cleaned['id']);
+        $this->assertArrayHasKey('html', $cleaned);
     }
 
     /**
@@ -948,7 +959,7 @@ final class external_test extends advanced_testcase {
         for ($i = 0; $i < 25; $i++) {
             $user = $this->getDataGenerator()->create_user();
             $this->getDataGenerator()->enrol_user($user->id, $course->id);
-            $this->issue_certificate((int)$customcert->id, (int)$user->id);
+            $this->issue_certificate((int) $customcert->id, (int) $user->id);
         }
 
         // Call the external function with includepdf=true and limit=500.
